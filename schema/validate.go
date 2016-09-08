@@ -6,39 +6,46 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/urfave/cli"
 	"github.com/xeipuuv/gojsonschema"
 )
 
-func main() {
-	nargs := len(os.Args[1:])
-	if nargs == 0 || nargs > 2 {
-		fmt.Printf("ERROR: usage is: %s <schema.json> [<document.json>]\n", os.Args[0])
-		os.Exit(1)
-	}
+const usage = `check document with specified schema
 
-	schemaPath, err := filepath.Abs(os.Args[1])
+Users can use validate in following ways.
+validate --schema <schema.json> <document.json>`
+
+func validate(context *cli.Context) error {
+	nargs := context.NArg()
+
+	schemaFile := context.String("schema")
+	if schemaFile == "" {
+		return fmt.Errorf("Error: schema-json file must be specified!")
+	}
+	schemaPath, err := filepath.Abs(schemaFile)
+
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return fmt.Errorf("Error: invalid schema-file path: %s", err)
 	}
 	schemaLoader := gojsonschema.NewReferenceLoader("file://" + schemaPath)
 	var documentLoader gojsonschema.JSONLoader
 
-	if nargs > 1 {
-		documentPath, err := filepath.Abs(os.Args[2])
+	if nargs == 1 {
+		documentArg := context.Args().Get(0)
+		documentPath, err := filepath.Abs(documentArg)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("Error: invalid document-file path: %s\n", err)
 		}
 		documentLoader = gojsonschema.NewReferenceLoader("file://" + documentPath)
-	} else {
+	} else if nargs == 0 {
 		documentBytes, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("Error: read input document failed: %s\n", err)
 		}
 		documentString := string(documentBytes)
 		documentLoader = gojsonschema.NewStringLoader(documentString)
+	} else {
+		return fmt.Errorf("Error: invalid arguments number\n")
 	}
 
 	result, err := gojsonschema.Validate(schemaLoader, documentLoader)
@@ -53,6 +60,29 @@ func main() {
 		for _, desc := range result.Errors() {
 			fmt.Printf("- %s\n", desc)
 		}
+	}
+
+	return nil
+}
+
+func main() {
+	app := cli.NewApp()
+	app.Name = "validate"
+	app.Usage = usage
+
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "schema,s",
+			Value: "",
+			Usage: "specify the schema-json file",
+		},
+	}
+
+	app.Action = validate
+
+	if err := app.Run(os.Args); err != nil {
+		fmt.Println(err)
+
 		os.Exit(1)
 	}
 }
